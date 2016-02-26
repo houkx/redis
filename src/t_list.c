@@ -413,18 +413,20 @@ void lindexCommand(redisClient *c) {
     robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.nullbulk);
     if (o == NULL || checkType(c,o,REDIS_LIST)) return;
     long index;
-    robj *value = NULL;
-
-    if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != REDIS_OK))
-        return;
-
+    int i;
+    addReplyMultiBulkLen(c, c->argc-2);
+    robj* value = NULL;
     if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-        unsigned char *p;
-        unsigned char *vstr;
-        unsigned int vlen;
-        long long vlong;
-        p = ziplistIndex(o->ptr,index);
-        if (ziplistGet(p,&vstr,&vlen,&vlong)) {
+     unsigned char *p;
+     unsigned char *vstr;
+     unsigned int vlen;
+     long long vlong;
+      for (i = 2; i < c->argc; i++) {
+        if ((getLongFromObjectOrReply(c, c->argv[i], &index, NULL) != REDIS_OK)){
+           addReply(c, shared.nullbulk);
+        }else{
+           p = ziplistIndex(o->ptr,index);
+           if (ziplistGet(p,&vstr,&vlen,&vlong)) {
             if (vstr) {
                 value = createStringObject((char*)vstr,vlen);
             } else {
@@ -435,17 +437,25 @@ void lindexCommand(redisClient *c) {
         } else {
             addReply(c,shared.nullbulk);
         }
-    } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
-        listNode *ln = listIndex(o->ptr,index);
-        if (ln != NULL) {
-            value = listNodeValue(ln);
-            addReplyBulk(c,value);
-        } else {
-            addReply(c,shared.nullbulk);
-        }
-    } else {
-        redisPanic("Unknown list encoding");
+      }
     }
+   }else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
+        for (i = 2; i < c->argc; i++) {
+          if ((getLongFromObjectOrReply(c, c->argv[i], &index, NULL) != REDIS_OK)){
+            addReply(c, shared.nullbulk);
+          }else{
+            listNode *ln = listIndex(o->ptr,index);
+            if (ln != NULL) {
+              value = listNodeValue(ln);
+              addReplyBulk(c,value);
+            } else {
+              addReply(c,shared.nullbulk);
+            }
+          }
+       }
+  }else {
+        redisPanic("Unknown list encoding");
+  }
 }
 
 void lsetCommand(redisClient *c) {
