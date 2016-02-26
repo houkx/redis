@@ -84,15 +84,23 @@ sds keyspaceEventsFlagsToString(int flags) {
     if (flags & REDIS_NOTIFY_KEYEVENT) res = sdscatlen(res,"E",1);
     return res;
 }
-
+robj * _getKeyValue(redisDb *db, robj *key){
+    dictEntry *de = dictFind(db->dict,key->ptr);
+    if (de) {
+        robj *val = dictGetVal(de);
+        return val;
+    } else {
+        return NULL;
+    }
+}
 /* The API provided to the rest of the Redis core is a simple function:
  *
- * notifyKeyspaceEvent(char *event, robj *key, int dbid);
+ * notifyKeyspaceEvent(char *event, robj *key, redisDb *db);
  *
  * 'event' is a C string representing the event name.
  * 'key' is a Redis object representing the key name.
- * 'dbid' is the database ID where the key lives.  */
-void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
+ * 'db' is the database where the key lives.  */
+void notifyKeyspaceEvent(int type, char *event, robj *key, redisDb *db) {
     sds chan;
     robj *chanobj, *eventobj;
     int len = -1;
@@ -103,27 +111,27 @@ void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid) {
 
     eventobj = createStringObject(event,strlen(event));
 
-    /* __keyspace@<db>__:<key> <event> notifications. */
+    /* __keyspace@<db>__:<key> <event> <*ValueType><Values> notifications. */
     if (server.notify_keyspace_events & REDIS_NOTIFY_KEYSPACE) {
         chan = sdsnewlen("__keyspace@",11);
-        len = ll2string(buf,sizeof(buf),dbid);
+        len = ll2string(buf,sizeof(buf),db->id);
         chan = sdscatlen(chan, buf, len);
         chan = sdscatlen(chan, "__:", 3);
         chan = sdscatsds(chan, key->ptr);
         chanobj = createObject(REDIS_STRING, chan);
-        pubsubPublishMessage(chanobj, eventobj);
+        pubsubPublishMessageWithValue(chanobj, eventobj, _getKeyValue(db, key));
         decrRefCount(chanobj);
     }
 
-    /* __keyevente@<db>__:<event> <key> notifications. */
+    /* __keyevente@<db>__:<event> <key> <*ValueType><Values> notifications. */
     if (server.notify_keyspace_events & REDIS_NOTIFY_KEYEVENT) {
         chan = sdsnewlen("__keyevent@",11);
-        if (len == -1) len = ll2string(buf,sizeof(buf),dbid);
+        if (len == -1) len = ll2string(buf,sizeof(buf),db->id);
         chan = sdscatlen(chan, buf, len);
         chan = sdscatlen(chan, "__:", 3);
         chan = sdscatsds(chan, eventobj->ptr);
         chanobj = createObject(REDIS_STRING, chan);
-        pubsubPublishMessage(chanobj, key);
+        pubsubPublishMessageWithValue(chanobj, eventobj, _getKeyValue(db, key));
         decrRefCount(chanobj);
     }
     decrRefCount(eventobj);

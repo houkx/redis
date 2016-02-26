@@ -1364,7 +1364,7 @@ cleanup:
     if (added || updated) {
         signalModifiedKey(c->db,key);
         notifyKeyspaceEvent(REDIS_NOTIFY_ZSET,
-            incr ? "zincr" : "zadd", key, c->db->id);
+            incr ? "zincr" : "zadd", key, c->db);
     }
 }
 
@@ -1427,9 +1427,9 @@ void zremCommand(redisClient *c) {
     }
 
     if (deleted) {
-        notifyKeyspaceEvent(REDIS_NOTIFY_ZSET,"zrem",key,c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_ZSET,"zrem",key,c->db);
         if (keyremoved)
-            notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",key,c->db->id);
+            notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",key,c->db);
         signalModifiedKey(c->db,key);
         server.dirty += deleted;
     }
@@ -1529,9 +1529,9 @@ void zremrangeGenericCommand(redisClient *c, int rangetype) {
     if (deleted) {
         char *event[3] = {"zremrangebyrank","zremrangebyscore","zremrangebylex"};
         signalModifiedKey(c->db,key);
-        notifyKeyspaceEvent(REDIS_NOTIFY_ZSET,event[rangetype],key,c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_ZSET,event[rangetype],key,c->db);
         if (keyremoved)
-            notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",key,c->db->id);
+            notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",key,c->db);
     }
     server.dirty += deleted;
     addReplyLongLong(c,deleted);
@@ -2132,13 +2132,13 @@ void zunionInterGenericCommand(redisClient *c, robj *dstkey, int op) {
         if (!touched) signalModifiedKey(c->db,dstkey);
         notifyKeyspaceEvent(REDIS_NOTIFY_ZSET,
             (op == REDIS_OP_UNION) ? "zunionstore" : "zinterstore",
-            dstkey,c->db->id);
+            dstkey,c->db);
         server.dirty++;
     } else {
         decrRefCount(dstobj);
         addReply(c,shared.czero);
         if (touched)
-            notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",dstkey,c->db->id);
+            notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",dstkey,c->db);
     }
     zfree(src);
 }
@@ -2151,17 +2151,12 @@ void zinterstoreCommand(redisClient *c) {
     zunionInterGenericCommand(c,c->argv[1], REDIS_OP_INTER);
 }
 
-void zrangeGenericCommand(redisClient *c, int reverse) {
-    robj *key = c->argv[1];
+void zrangeGenericCommand_(redisClient *c,robj *keyOrObj, int reverse,long start,long end,int isKey) {
     robj *zobj;
     int withscores = 0;
-    long start;
-    long end;
+
     int llen;
     int rangelen;
-
-    if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != REDIS_OK) ||
-        (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != REDIS_OK)) return;
 
     if (c->argc == 5 && !strcasecmp(c->argv[4]->ptr,"withscores")) {
         withscores = 1;
@@ -2169,9 +2164,12 @@ void zrangeGenericCommand(redisClient *c, int reverse) {
         addReply(c,shared.syntaxerr);
         return;
     }
-
-    if ((zobj = lookupKeyReadOrReply(c,key,shared.emptymultibulk)) == NULL
+    if(isKey){
+       if ((zobj = lookupKeyReadOrReply(c,keyOrObj,shared.emptymultibulk)) == NULL
          || checkType(c,zobj,REDIS_ZSET)) return;
+    }else{
+    	zobj = keyOrObj;
+    }
 
     /* Sanitize indexes. */
     llen = zsetLength(zobj);
@@ -2252,7 +2250,14 @@ void zrangeGenericCommand(redisClient *c, int reverse) {
         redisPanic("Unknown sorted set encoding");
     }
 }
+void zrangeGenericCommand(redisClient *c, int reverse) {
+	long start;
+	long end;
+    if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != REDIS_OK) ||
+        (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != REDIS_OK)) return;
 
+	zrangeGenericCommand_(c, c->argv[1], reverse,start, end, 1);
+}
 void zrangeCommand(redisClient *c) {
     zrangeGenericCommand(c,0);
 }
@@ -2915,4 +2920,7 @@ void zscanCommand(redisClient *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
         checkType(c,o,REDIS_ZSET)) return;
     scanGenericCommand(c,o,cursor);
+}
+void getAll_zset(redisClient *c,robj *o){
+	zrangeGenericCommand_(c, o, 0, 0, -1, 0);
 }

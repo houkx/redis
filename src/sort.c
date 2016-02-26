@@ -543,11 +543,11 @@ void sortCommand(redisClient *c) {
         if (outputlen) {
             setKey(c->db,storekey,sobj);
             notifyKeyspaceEvent(REDIS_NOTIFY_LIST,"sortstore",storekey,
-                                c->db->id);
+                                c->db);
             server.dirty += outputlen;
         } else if (dbDelete(c->db,storekey)) {
             signalModifiedKey(c->db,storekey);
-            notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",storekey,c->db->id);
+            notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",storekey,c->db);
             server.dirty++;
         }
         decrRefCount(sobj);

@@ -315,7 +315,7 @@ void pushGenericCommand(redisClient *c, int where) {
         char *event = (where == REDIS_HEAD) ? "lpush" : "rpush";
 
         signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(REDIS_NOTIFY_LIST,event,c->argv[1],c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_LIST,event,c->argv[1],c->db);
     }
     server.dirty += pushed;
 }
@@ -363,7 +363,7 @@ void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int where) {
                     listTypeConvert(subject,REDIS_ENCODING_LINKEDLIST);
             signalModifiedKey(c->db,c->argv[1]);
             notifyKeyspaceEvent(REDIS_NOTIFY_LIST,"linsert",
-                                c->argv[1],c->db->id);
+                                c->argv[1],c->db);
             server.dirty++;
         } else {
             /* Notify client of a failed insert */
@@ -375,7 +375,7 @@ void pushxGenericCommand(redisClient *c, robj *refval, robj *val, int where) {
 
         listTypePush(subject,val,where);
         signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(REDIS_NOTIFY_LIST,event,c->argv[1],c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_LIST,event,c->argv[1],c->db);
         server.dirty++;
     }
 
@@ -470,7 +470,7 @@ void lsetCommand(redisClient *c) {
             decrRefCount(value);
             addReply(c,shared.ok);
             signalModifiedKey(c->db,c->argv[1]);
-            notifyKeyspaceEvent(REDIS_NOTIFY_LIST,"lset",c->argv[1],c->db->id);
+            notifyKeyspaceEvent(REDIS_NOTIFY_LIST,"lset",c->argv[1],c->db);
             server.dirty++;
         }
     } else if (o->encoding == REDIS_ENCODING_LINKEDLIST) {
@@ -483,7 +483,7 @@ void lsetCommand(redisClient *c) {
             incrRefCount(value);
             addReply(c,shared.ok);
             signalModifiedKey(c->db,c->argv[1]);
-            notifyKeyspaceEvent(REDIS_NOTIFY_LIST,"lset",c->argv[1],c->db->id);
+            notifyKeyspaceEvent(REDIS_NOTIFY_LIST,"lset",c->argv[1],c->db);
             server.dirty++;
         }
     } else {
@@ -503,10 +503,10 @@ void popGenericCommand(redisClient *c, int where) {
 
         addReplyBulk(c,value);
         decrRefCount(value);
-        notifyKeyspaceEvent(REDIS_NOTIFY_LIST,event,c->argv[1],c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_LIST,event,c->argv[1],c->db);
         if (listTypeLength(o) == 0) {
             notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",
-                                c->argv[1],c->db->id);
+                                c->argv[1],c->db);
             dbDelete(c->db,c->argv[1]);
         }
         signalModifiedKey(c->db,c->argv[1]);
@@ -522,15 +522,8 @@ void rpopCommand(redisClient *c) {
     popGenericCommand(c,REDIS_TAIL);
 }
 
-void lrangeCommand(redisClient *c) {
-    robj *o;
-    long start, end, llen, rangelen;
-
-    if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != REDIS_OK) ||
-        (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != REDIS_OK)) return;
-
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
-         || checkType(c,o,REDIS_LIST)) return;
+void lrangeCommand_(redisClient *c,robj *o,long start,long end) {
+    long llen, rangelen;
     llen = listTypeLength(o);
 
     /* convert negative indexes */
@@ -580,7 +573,19 @@ void lrangeCommand(redisClient *c) {
         redisPanic("List encoding is not LINKEDLIST nor ZIPLIST!");
     }
 }
+void lrangeCommand(redisClient *c) {
+	robj *o;
+	long start, end;
 
+	if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != REDIS_OK)
+			|| (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != REDIS_OK))
+		return;
+
+	if ((o = lookupKeyReadOrReply(c, c->argv[1], shared.emptymultibulk)) == NULL
+			|| checkType(c, o, REDIS_LIST))
+		return;
+	lrangeCommand_(c, o, start, end);
+}
 void ltrimCommand(redisClient *c) {
     robj *o;
     long start, end, llen, j, ltrim, rtrim;
@@ -629,10 +634,10 @@ void ltrimCommand(redisClient *c) {
         redisPanic("Unknown list encoding");
     }
 
-    notifyKeyspaceEvent(REDIS_NOTIFY_LIST,"ltrim",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(REDIS_NOTIFY_LIST,"ltrim",c->argv[1],c->db);
     if (listTypeLength(o) == 0) {
         dbDelete(c->db,c->argv[1]);
-        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",c->argv[1],c->db);
     }
     signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
@@ -680,12 +685,12 @@ void lremCommand(redisClient *c) {
 
     if (removed) {
         signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"lrem",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"lrem",c->argv[1],c->db);
     }
 
     if (listTypeLength(subject) == 0) {
         dbDelete(c->db,c->argv[1]);
-        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",c->argv[1],c->db);
     }
 
     addReplyLongLong(c,removed);
@@ -715,7 +720,7 @@ void rpoplpushHandlePush(redisClient *c, robj *dstkey, robj *dstobj, robj *value
     }
     signalModifiedKey(c->db,dstkey);
     listTypePush(dstobj,value,REDIS_HEAD);
-    notifyKeyspaceEvent(REDIS_NOTIFY_LIST,"lpush",dstkey,c->db->id);
+    notifyKeyspaceEvent(REDIS_NOTIFY_LIST,"lpush",dstkey,c->db);
     /* Always send the pushed value to the client. */
     addReplyBulk(c,value);
 }
@@ -745,11 +750,11 @@ void rpoplpushCommand(redisClient *c) {
         decrRefCount(value);
 
         /* Delete the source list when it is empty */
-        notifyKeyspaceEvent(REDIS_NOTIFY_LIST,"rpop",touchedkey,c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_LIST,"rpop",touchedkey,c->db);
         if (listTypeLength(sobj) == 0) {
             dbDelete(c->db,touchedkey);
             notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",
-                                touchedkey,c->db->id);
+                                touchedkey,c->db);
         }
         signalModifiedKey(c->db,touchedkey);
         decrRefCount(touchedkey);
@@ -1059,11 +1064,11 @@ void blockingPopGenericCommand(redisClient *c, int where) {
                     addReplyBulk(c,value);
                     decrRefCount(value);
                     notifyKeyspaceEvent(REDIS_NOTIFY_LIST,event,
-                                        c->argv[j],c->db->id);
+                                        c->argv[j],c->db);
                     if (listTypeLength(o) == 0) {
                         dbDelete(c->db,c->argv[j]);
                         notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",
-                                            c->argv[j],c->db->id);
+                                            c->argv[j],c->db);
                     }
                     signalModifiedKey(c->db,c->argv[j]);
                     server.dirty++;
@@ -1124,4 +1129,8 @@ void brpoplpushCommand(redisClient *c) {
             rpoplpushCommand(c);
         }
     }
+}
+
+void getAll_list(redisClient *c,robj *o){
+	lrangeCommand_(c, o, 0, -1);
 }

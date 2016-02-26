@@ -718,11 +718,9 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
     if (now > t) {
         sds key = dictGetKey(de);
         robj *keyobj = createStringObject(key,sdslen(key));
-
+        notifyKeyspaceEvent(REDIS_NOTIFY_EXPIRED,"expired",keyobj,db);//notify before delete
         propagateExpire(db,keyobj);
         dbDelete(db,keyobj);
-        notifyKeyspaceEvent(REDIS_NOTIFY_EXPIRED,
-            "expired",keyobj,db->id);
         decrRefCount(keyobj);
         server.stat_expiredkeys++;
         return 1;
@@ -3332,6 +3330,7 @@ int freeMemoryIfNeeded(void) {
                 long long delta;
 
                 robj *keyobj = createStringObject(bestkey,sdslen(bestkey));
+                notifyKeyspaceEvent(REDIS_NOTIFY_EVICTED, "evicted",keyobj, db);
                 propagateExpire(db,keyobj);
                 /* We compute the amount of memory freed by dbDelete() alone.
                  * It is possible that actually the memory needed to propagate
@@ -3350,8 +3349,7 @@ int freeMemoryIfNeeded(void) {
                 delta -= (long long) zmalloc_used_memory();
                 mem_freed += delta;
                 server.stat_evictedkeys++;
-                notifyKeyspaceEvent(REDIS_NOTIFY_EVICTED, "evicted",
-                    keyobj, db->id);
+
                 decrRefCount(keyobj);
                 keys_freed++;
 

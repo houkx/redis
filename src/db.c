@@ -285,7 +285,7 @@ void delCommand(redisClient *c) {
         if (dbDelete(c->db,c->argv[j])) {
             signalModifiedKey(c->db,c->argv[j]);
             notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,
-                "del",c->argv[j],c->db->id);
+                "del",c->argv[j],c->db);
             server.dirty++;
             deleted++;
         }
@@ -695,9 +695,9 @@ void renameGenericCommand(redisClient *c, int nx) {
     signalModifiedKey(c->db,c->argv[1]);
     signalModifiedKey(c->db,c->argv[2]);
     notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"rename_from",
-        c->argv[1],c->db->id);
+        c->argv[1],c->db);
     notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"rename_to",
-        c->argv[2],c->db->id);
+        c->argv[2],c->db);
     server.dirty++;
     addReply(c,nx ? shared.cone : shared.ok);
 }
@@ -857,7 +857,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
     server.stat_expiredkeys++;
     propagateExpire(db,key);
     notifyKeyspaceEvent(REDIS_NOTIFY_EXPIRED,
-        "expired",key,db->id);
+        "expired",key,db);
     return dbDelete(db,key);
 }
 
@@ -905,14 +905,14 @@ void expireGenericCommand(redisClient *c, long long basetime, int unit) {
         rewriteClientCommandVector(c,2,aux,key);
         decrRefCount(aux);
         signalModifiedKey(c->db,key);
-        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",key,c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",key,c->db);
         addReply(c, shared.cone);
         return;
     } else {
         setExpire(c->db,key,when);
         addReply(c,shared.cone);
         signalModifiedKey(c->db,key);
-        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"expire",key,c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"expire",key,c->db);
         server.dirty++;
         return;
     }

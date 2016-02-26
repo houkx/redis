@@ -1184,7 +1184,7 @@ void pfaddCommand(redisClient *c) {
     hdr = o->ptr;
     if (updated) {
         signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"pfadd",c->argv[1],c->db);
         server.dirty++;
         HLL_INVALIDATE_CACHE(hdr);
     }
@@ -1337,7 +1337,7 @@ void pfmergeCommand(redisClient *c) {
     signalModifiedKey(c->db,c->argv[1]);
     /* We generate an PFADD event for PFMERGE for semantical simplicity
      * since in theory this is a mass-add of elements. */
-    notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(REDIS_NOTIFY_STRING,"pfadd",c->argv[1],c->db);
     server.dirty++;
     addReply(c,shared.ok);
 }

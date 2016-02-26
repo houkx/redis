@@ -221,8 +221,43 @@ int pubsubUnsubscribeAllPatterns(redisClient *c, int notify) {
     return count;
 }
 
-/* Publish a message */
+void addMessageValuesReply(redisClient *c, robj *o) {
+	if( o == NULL ){
+		return;
+	}
+	// add object type in reply first, with a prefix:*
+	addReplyBulk(c, shared.mbulkhdr[o->type]);
+	switch (o->type) {
+	case REDIS_STRING: {
+		addReplyBulk(c, o);
+		break;
+	}
+	case REDIS_HASH: {
+		getAll_hash(c, o);
+		break;
+	}
+	case REDIS_LIST: {
+		getAll_list(c, o);
+		break;
+	}
+	case REDIS_SET: {
+		getAll_set(c, o);
+		break;
+	}
+	case REDIS_ZSET: {
+		getAll_zset(c, o);
+		break;
+	}
+	default:
+		addReply(c, shared.wrongtypeerr);
+	}
+
+}
 int pubsubPublishMessage(robj *channel, robj *message) {
+	return pubsubPublishMessageWithValue(channel, message, NULL);
+}
+/* Publish a message */
+int pubsubPublishMessageWithValue(robj *channel, robj *message, robj *o) {
     int receivers = 0;
     dictEntry *de;
     listNode *ln;
@@ -239,10 +274,12 @@ int pubsubPublishMessage(robj *channel, robj *message) {
         while ((ln = listNext(&li)) != NULL) {
             redisClient *c = ln->value;
 
-            addReply(c,shared.mbulkhdr[3]);
+            addReply(c,shared.mbulkhdr[o==NULL?3:5]);
             addReply(c,shared.messagebulk);
             addReplyBulk(c,channel);
             addReplyBulk(c,message);
+            if(o!=NULL)addMessageValuesReply(c,o);
+
             receivers++;
         }
     }
@@ -257,11 +294,12 @@ int pubsubPublishMessage(robj *channel, robj *message) {
                                 sdslen(pat->pattern->ptr),
                                 (char*)channel->ptr,
                                 sdslen(channel->ptr),0)) {
-                addReply(pat->client,shared.mbulkhdr[4]);
+                addReply(pat->client,shared.mbulkhdr[o==NULL?4:6]);
                 addReply(pat->client,shared.pmessagebulk);
                 addReplyBulk(pat->client,pat->pattern);
                 addReplyBulk(pat->client,channel);
                 addReplyBulk(pat->client,message);
+                if(o!=NULL)addMessageValuesReply(pat->client,o);
                 receivers++;
             }
         }

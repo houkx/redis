@@ -268,7 +268,7 @@ void saddCommand(redisClient *c) {
     }
     if (added) {
         signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(REDIS_NOTIFY_SET,"sadd",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_SET,"sadd",c->argv[1],c->db);
     }
     server.dirty += added;
     addReplyLongLong(c,added);
@@ -293,10 +293,10 @@ void sremCommand(redisClient *c) {
     }
     if (deleted) {
         signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(REDIS_NOTIFY_SET,"srem",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_SET,"srem",c->argv[1],c->db);
         if (keyremoved)
             notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",c->argv[1],
-                                c->db->id);
+                                c->db);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
@@ -330,12 +330,12 @@ void smoveCommand(redisClient *c) {
         addReply(c,shared.czero);
         return;
     }
-    notifyKeyspaceEvent(REDIS_NOTIFY_SET,"srem",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(REDIS_NOTIFY_SET,"srem",c->argv[1],c->db);
 
     /* Remove the src set from the database when empty */
     if (setTypeSize(srcset) == 0) {
         dbDelete(c->db,c->argv[1]);
-        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",c->argv[1],c->db);
     }
     signalModifiedKey(c->db,c->argv[1]);
     signalModifiedKey(c->db,c->argv[2]);
@@ -350,7 +350,7 @@ void smoveCommand(redisClient *c) {
     /* An extra key has changed when ele was successfully added to dstset */
     if (setTypeAdd(dstset,ele)) {
         server.dirty++;
-        notifyKeyspaceEvent(REDIS_NOTIFY_SET,"sadd",c->argv[2],c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_SET,"sadd",c->argv[2],c->db);
     }
     addReply(c,shared.cone);
 }
@@ -393,7 +393,7 @@ void spopCommand(redisClient *c) {
         incrRefCount(ele);
         setTypeRemove(set,ele);
     }
-    notifyKeyspaceEvent(REDIS_NOTIFY_SET,"spop",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(REDIS_NOTIFY_SET,"spop",c->argv[1],c->db);
 
     /* Replicate/AOF this command as an SREM operation */
     aux = createStringObject("SREM",4);
@@ -404,7 +404,7 @@ void spopCommand(redisClient *c) {
     addReplyBulk(c,ele);
     if (setTypeSize(set) == 0) {
         dbDelete(c->db,c->argv[1]);
-        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",c->argv[1],c->db);
     }
     signalModifiedKey(c->db,c->argv[1]);
     server.dirty++;
@@ -587,7 +587,7 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
     return  (o2 ? setTypeSize(o2) : 0) - (o1 ? setTypeSize(o1) : 0);
 }
 
-void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, robj *dstkey) {
+void sinterGenericCommand_(redisClient *c, robj **setkeyOrObjs, unsigned long setnum, robj *dstkey,int isKey) {
     robj **sets = zmalloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
     robj *eleobj, *dstset = NULL;
@@ -597,9 +597,9 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
     int encoding;
 
     for (j = 0; j < setnum; j++) {
-        robj *setobj = dstkey ?
-            lookupKeyWrite(c->db,setkeys[j]) :
-            lookupKeyRead(c->db,setkeys[j]);
+        robj *setobj = isKey?(dstkey ?
+            lookupKeyWrite(c->db,setkeyOrObjs[j]) :
+            lookupKeyRead(c->db,setkeyOrObjs[j])):setkeyOrObjs[j];
         if (!setobj) {
             zfree(sets);
             if (dstkey) {
@@ -706,13 +706,13 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
             dbAdd(c->db,dstkey,dstset);
             addReplyLongLong(c,setTypeSize(dstset));
             notifyKeyspaceEvent(REDIS_NOTIFY_SET,"sinterstore",
-                dstkey,c->db->id);
+                dstkey,c->db);
         } else {
             decrRefCount(dstset);
             addReply(c,shared.czero);
             if (deleted)
                 notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",
-                    dstkey,c->db->id);
+                    dstkey,c->db);
         }
         signalModifiedKey(c->db,dstkey);
         server.dirty++;
@@ -721,7 +721,9 @@ void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, 
     }
     zfree(sets);
 }
-
+void sinterGenericCommand(redisClient *c, robj **setkeys, unsigned long setnum, robj *dstkey) {
+	sinterGenericCommand_(c, setkeys, setnum, dstkey, 1);
+}
 void sinterCommand(redisClient *c) {
     sinterGenericCommand(c,c->argv+1,c->argc-1,NULL);
 }
@@ -878,13 +880,13 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
             addReplyLongLong(c,setTypeSize(dstset));
             notifyKeyspaceEvent(REDIS_NOTIFY_SET,
                 op == REDIS_OP_UNION ? "sunionstore" : "sdiffstore",
-                dstkey,c->db->id);
+                dstkey,c->db);
         } else {
             decrRefCount(dstset);
             addReply(c,shared.czero);
             if (deleted)
                 notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",
-                    dstkey,c->db->id);
+                    dstkey,c->db);
         }
         signalModifiedKey(c->db,dstkey);
         server.dirty++;
@@ -916,4 +918,11 @@ void sscanCommand(redisClient *c) {
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
         checkType(c,set,REDIS_SET)) return;
     scanGenericCommand(c,set,cursor);
+}
+
+void getAll_set(redisClient *c, robj *o) {
+	robj **setks = zmalloc(sizeof(robj*));
+	setks[0] = o;
+	sinterGenericCommand_(c, setks, 1, NULL, 0);
+	zfree(setks);
 }

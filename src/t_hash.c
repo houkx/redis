@@ -471,7 +471,7 @@ void hsetCommand(redisClient *c) {
     update = hashTypeSet(o,c->argv[2],c->argv[3]);
     addReply(c, update ? shared.czero : shared.cone);
     signalModifiedKey(c->db,c->argv[1]);
-    notifyKeyspaceEvent(REDIS_NOTIFY_HASH,"hset",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(REDIS_NOTIFY_HASH,"hset",c->argv[1],c->db);
     server.dirty++;
 }
 
@@ -487,7 +487,7 @@ void hsetnxCommand(redisClient *c) {
         hashTypeSet(o,c->argv[2],c->argv[3]);
         addReply(c, shared.cone);
         signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(REDIS_NOTIFY_HASH,"hset",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_HASH,"hset",c->argv[1],c->db);
         server.dirty++;
     }
 }
@@ -509,7 +509,7 @@ void hmsetCommand(redisClient *c) {
     }
     addReply(c, shared.ok);
     signalModifiedKey(c->db,c->argv[1]);
-    notifyKeyspaceEvent(REDIS_NOTIFY_HASH,"hset",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(REDIS_NOTIFY_HASH,"hset",c->argv[1],c->db);
     server.dirty++;
 }
 
@@ -543,7 +543,7 @@ void hincrbyCommand(redisClient *c) {
     decrRefCount(new);
     addReplyLongLong(c,value);
     signalModifiedKey(c->db,c->argv[1]);
-    notifyKeyspaceEvent(REDIS_NOTIFY_HASH,"hincrby",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(REDIS_NOTIFY_HASH,"hincrby",c->argv[1],c->db);
     server.dirty++;
 }
 
@@ -570,7 +570,7 @@ void hincrbyfloatCommand(redisClient *c) {
     hashTypeSet(o,c->argv[2],new);
     addReplyBulk(c,new);
     signalModifiedKey(c->db,c->argv[1]);
-    notifyKeyspaceEvent(REDIS_NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(REDIS_NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db);
     server.dirty++;
 
     /* Always replicate HINCRBYFLOAT as an HSET command with the final value
@@ -668,10 +668,10 @@ void hdelCommand(redisClient *c) {
     }
     if (deleted) {
         signalModifiedKey(c->db,c->argv[1]);
-        notifyKeyspaceEvent(REDIS_NOTIFY_HASH,"hdel",c->argv[1],c->db->id);
+        notifyKeyspaceEvent(REDIS_NOTIFY_HASH,"hdel",c->argv[1],c->db);
         if (keyremoved)
             notifyKeyspaceEvent(REDIS_NOTIFY_GENERIC,"del",c->argv[1],
-                                c->db->id);
+                                c->db);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
@@ -709,15 +709,10 @@ static void addHashIteratorCursorToReply(redisClient *c, hashTypeIterator *hi, i
     }
 }
 
-void genericHgetallCommand(redisClient *c, int flags) {
-    robj *o;
+void genericHgetallCommand_(redisClient *c, robj *o, int flags) {
     hashTypeIterator *hi;
     int multiplier = 0;
     int length, count = 0;
-
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
-        || checkType(c,o,REDIS_HASH)) return;
-
     if (flags & REDIS_HASH_KEY) multiplier++;
     if (flags & REDIS_HASH_VALUE) multiplier++;
 
@@ -739,7 +734,12 @@ void genericHgetallCommand(redisClient *c, int flags) {
     hashTypeReleaseIterator(hi);
     redisAssert(count == length);
 }
-
+void genericHgetallCommand(redisClient *c, int flags) {
+    robj *o;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptymultibulk)) == NULL
+        || checkType(c,o,REDIS_HASH)) return;
+    genericHgetallCommand_(c, o ,flags);
+}
 void hkeysCommand(redisClient *c) {
     genericHgetallCommand(c,REDIS_HASH_KEY);
 }
@@ -768,4 +768,8 @@ void hscanCommand(redisClient *c) {
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
         checkType(c,o,REDIS_HASH)) return;
     scanGenericCommand(c,o,cursor);
+}
+
+void getAll_hash(redisClient *c,robj *o){
+	genericHgetallCommand_(c, o, REDIS_HASH_KEY | REDIS_HASH_VALUE);
 }

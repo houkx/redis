@@ -1027,6 +1027,12 @@ extern dictType replScriptCacheDictType;
  * Functions prototypes
  *----------------------------------------------------------------------------*/
 
+/* getAllValues from hash,list,set,zset */
+void getAll_hash(redisClient *c,robj *o);//t_hash.c
+void getAll_list(redisClient *c,robj *o);//t_list.c
+void getAll_set(redisClient *c,robj *o); //t_set.c
+void getAll_zset(redisClient *c,robj *o);//t_zset.c
+
 /* Utils */
 long long ustime(void);
 long long mstime(void);
@@ -1313,9 +1319,10 @@ int pubsubUnsubscribeAllPatterns(redisClient *c, int notify);
 void freePubsubPattern(void *p);
 int listMatchPubsubPattern(void *a, void *b);
 int pubsubPublishMessage(robj *channel, robj *message);
-
+int pubsubPublishMessageWithValue(robj *channel, robj *message, robj *value);// publish msg and value,first reply of value is obj type
 /* Keyspace events notification */
-void notifyKeyspaceEvent(int type, char *event, robj *key, int dbid);
+// the last parameter "int dbid" changeTo:"redisDb *db"
+void notifyKeyspaceEvent(int type, char *event, robj *key, redisDb *db);
 int keyspaceEventsStringToFlags(char *classes);
 sds keyspaceEventsFlagsToString(int flags);
 
